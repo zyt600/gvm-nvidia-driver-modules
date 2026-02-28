@@ -554,7 +554,7 @@ int gvm_debugfs_create_gpu_dir(pid_t pid, uvm_gpu_id_t gpu_id)
     }
 
     // Create files in GPU directory
-    gpu_debugfs->memory_limit = debugfs_create_file("memory.limit", 0644, gpu_debugfs->gpu_dir,
+    gpu_debugfs->memory_limit = debugfs_create_file("memory.limit.high", 0644, gpu_debugfs->gpu_dir,
                                                    gpu_debugfs, &gvm_process_memory_limit_fops);
     if (!gpu_debugfs->memory_limit) {
         ret = -ENOMEM;
