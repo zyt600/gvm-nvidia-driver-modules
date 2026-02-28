@@ -16,6 +16,15 @@
 static struct dentry *gvm_debugfs_root;
 static struct dentry *gvm_debugfs_processes_dir;
 
+// Global GPU memory high watermark (percentage, 0-100).
+// When GPU memory utilization exceeds this threshold, todo
+static unsigned int gvm_gpu_mem_high_watermark = 95;
+
+// Global GPU memory low watermark (percentage, 0-100). When eviction is
+// triggered by the high watermark, it continues until GPU memory utilization
+// drops below this threshold.
+static unsigned int gvm_gpu_mem_low_watermark = 85;
+
 // Hash table for per-process debugfs directories
 #define GVM_DEBUGFS_HASH_BITS 8
 static DEFINE_HASHTABLE(gvm_debugfs_dirs, GVM_DEBUGFS_HASH_BITS);
@@ -649,6 +658,107 @@ int gvm_debugfs_remove_gpu_dir(pid_t pid, uvm_gpu_id_t gpu_id)
 // Main debugfs interface
 //
 
+static int gvm_gpu_mem_high_watermark_show(struct seq_file *m, void *data)
+{
+    seq_printf(m, "%u\n", gvm_gpu_mem_high_watermark);
+    return 0;
+}
+
+static ssize_t gvm_gpu_mem_high_watermark_write(struct file *file, const char __user *user_buf,
+                                                size_t count, loff_t *ppos)
+{
+    char buf[32];
+    unsigned int val;
+    int error;
+
+    if (count >= sizeof(buf))
+        return -EINVAL;
+
+    if (copy_from_user(buf, user_buf, count))
+        return -EFAULT;
+
+    buf[count] = '\0';
+
+    error = kstrtouint(buf, 10, &val);
+    if (error != 0)
+        return error;
+
+    if (val > 100 || val <= 0) {
+        UVM_ERR_PRINT("gpu_mem_high_watermark should be 0-100 but got %u\n", val);
+        return -EINVAL;
+    }
+
+    gvm_gpu_mem_high_watermark = val;
+    // todo: if we should evict some memory to free up space for the new allocation
+    return count;
+}
+
+static int gvm_gpu_mem_high_watermark_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, gvm_gpu_mem_high_watermark_show, NULL);
+}
+
+static const struct file_operations gvm_gpu_mem_high_watermark_fops = {
+    .open = gvm_gpu_mem_high_watermark_open,
+    .read = seq_read,
+    .write = gvm_gpu_mem_high_watermark_write,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+
+static int gvm_gpu_mem_low_watermark_show(struct seq_file *m, void *data)
+{
+    seq_printf(m, "%u\n", gvm_gpu_mem_low_watermark);
+    return 0;
+}
+
+static ssize_t gvm_gpu_mem_low_watermark_write(struct file *file, const char __user *user_buf,
+                                               size_t count, loff_t *ppos)
+{
+    char buf[32];
+    unsigned int val;
+    int error;
+
+    if (count >= sizeof(buf))
+        return -EINVAL;
+
+    if (copy_from_user(buf, user_buf, count))
+        return -EFAULT;
+
+    buf[count] = '\0';
+
+    error = kstrtouint(buf, 10, &val);
+    if (error != 0)
+        return error;
+
+    if (val > 100 || val <= 0) {
+        UVM_ERR_PRINT("gpu_mem_low_watermark should be 0-100 but got %u\n", val);
+        return -EINVAL;
+    }
+
+    if (val > gvm_gpu_mem_high_watermark) {
+        UVM_ERR_PRINT("gpu_mem_low_watermark (%u) must not exceed high_watermark (%u)\n",
+                       val, gvm_gpu_mem_high_watermark);
+        return -EINVAL;
+    }
+
+    gvm_gpu_mem_low_watermark = val;
+    return count;
+}
+
+static int gvm_gpu_mem_low_watermark_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, gvm_gpu_mem_low_watermark_show, NULL);
+}
+
+static const struct file_operations gvm_gpu_mem_low_watermark_fops = {
+    .open = gvm_gpu_mem_low_watermark_open,
+    .read = seq_read,
+    .write = gvm_gpu_mem_low_watermark_write,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+
 int gvm_debugfs_init(void)
 {
     // Create root directory
@@ -664,6 +774,14 @@ int gvm_debugfs_init(void)
     // Create global process list file
     if (!debugfs_create_file("list", 0444, gvm_debugfs_processes_dir, NULL,
                              &gvm_processes_list_fops))
+        goto cleanup_processes;
+
+    if (!debugfs_create_file("memory.watermark.high", 0644, gvm_debugfs_root, NULL,
+                             &gvm_gpu_mem_high_watermark_fops))
+        goto cleanup_processes;
+
+    if (!debugfs_create_file("memory.watermark.low", 0644, gvm_debugfs_root, NULL,
+                             &gvm_gpu_mem_low_watermark_fops))
         goto cleanup_processes;
 
     return 0;
@@ -798,6 +916,14 @@ size_t get_gpu_memcg_current(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
 size_t get_gpu_memcg_limit(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
     UVM_ASSERT(va_space->gpu_cgroup);
     return va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit;
+}
+
+unsigned int get_gpu_mem_high_watermark(void) {
+    return gvm_gpu_mem_high_watermark;
+}
+
+unsigned int get_gpu_mem_low_watermark(void) {
+    return gvm_gpu_mem_low_watermark;
 }
 
 NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
