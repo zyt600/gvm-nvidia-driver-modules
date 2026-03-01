@@ -1055,6 +1055,16 @@ static NV_STATUS uvm_api_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *param
     return gvm_update_event_count(params, va_space, gpu->id);
 }
 
+static NV_STATUS uvm_api_wait_eviction_notice(UVM_WAIT_EVICTION_NOTICE_PARAMS *params, struct file *filp)
+{
+    uvm_va_space_t *va_space = uvm_va_space_get(filp);
+
+    if (!va_space)
+        return NV_ERR_INVALID_ARGUMENT;
+
+    return gvm_wait_eviction_notice(va_space, params);
+}
+
 static NV_STATUS uvm_debugfs_api_ctrl_cmd_operate_gr_channel_group(UVM_CTRL_CMD_OPERATE_CHANNEL_GROUP_PARAMS *params, uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
     uvm_gpu_va_space_t *gpu_va_space;
     uvm_user_channel_group_t *user_channel_group;
@@ -1219,6 +1229,7 @@ static long uvm_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_CLEAR_ALL_ACCESS_COUNTERS,      uvm_api_clear_all_access_counters);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_IS_INITIALIZED,              uvm_api_is_initialized);
         UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_UPDATE_EVENT_COUNT,              uvm_api_update_event_count);
+        UVM_ROUTE_CMD_STACK_INIT_CHECK(UVM_WAIT_EVICTION_NOTICE,            uvm_api_wait_eviction_notice);
     }
 
     // Try the test ioctls if none of the above matched
