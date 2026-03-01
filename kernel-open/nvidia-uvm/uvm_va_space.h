@@ -367,6 +367,7 @@ struct uvm_va_space_struct
     {
         wait_queue_head_t wait_queue;
         bool              has_notice;
+        NvProcessorUuid   uuid;
         NvU64             target_memory;
         spinlock_t        lock;
     } eviction_notice;

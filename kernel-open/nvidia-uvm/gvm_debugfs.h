@@ -58,4 +58,8 @@ unsigned int get_gpu_mem_high_watermark(void);
 unsigned int get_gpu_mem_low_watermark(void);
 
 NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
+
+void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid, NvU64 target_memory);
+NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_NOTICE_PARAMS *params);
+
 #endif  // _GVM_DEBUGFS_H

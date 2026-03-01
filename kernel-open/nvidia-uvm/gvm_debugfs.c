@@ -951,3 +951,35 @@ NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_s
 
     return NV_OK;
 }
+
+void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid, NvU64 target_memory)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&va_space->eviction_notice.lock, flags);
+    va_space->eviction_notice.uuid = uuid;
+    va_space->eviction_notice.target_memory = target_memory;
+    va_space->eviction_notice.has_notice = true;
+    spin_unlock_irqrestore(&va_space->eviction_notice.lock, flags);
+
+    wake_up_interruptible(&va_space->eviction_notice.wait_queue);
+}
+
+NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_NOTICE_PARAMS *params)
+{
+    unsigned long flags;
+    int ret;
+
+    ret = wait_event_interruptible(va_space->eviction_notice.wait_queue,
+                                   va_space->eviction_notice.has_notice);
+    if (ret)
+        return NV_ERR_SIGNAL_PENDING;
+
+    spin_lock_irqsave(&va_space->eviction_notice.lock, flags);
+    params->uuid = va_space->eviction_notice.uuid;
+    params->target_memory = va_space->eviction_notice.target_memory;
+    va_space->eviction_notice.has_notice = false;
+    spin_unlock_irqrestore(&va_space->eviction_notice.lock, flags);
+
+    return NV_OK;
+}
