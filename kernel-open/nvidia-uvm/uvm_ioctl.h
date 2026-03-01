@@ -1181,6 +1181,14 @@ typedef struct
     NV_STATUS rmStatus;
 } UVM_UPDATE_EVENT_COUNT_PARAMS;
 
+#define UVM_WAIT_EVICTION_NOTICE                                      UVM_IOCTL_BASE(82)
+typedef struct
+{
+    NvProcessorUuid uuid;          // IN (reserved)
+    NvU64           target_memory; // OUT: target memory budget for this process (bytes)
+    NV_STATUS       rmStatus;      // OUT
+} UVM_WAIT_EVICTION_NOTICE_PARAMS;
+
 //
 // Temporary ioctls which should be removed before UVM 8 release
 // Number backwards from 2047 - highest custom ioctl function number
