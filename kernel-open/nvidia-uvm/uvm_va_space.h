@@ -365,7 +365,7 @@ struct uvm_va_space_struct
     // thread blocking in UVM_WAIT_EVICTION_NOTICE ioctl.
     struct
     {
-        wait_queue_head_t wq;
+        wait_queue_head_t wait_queue;
         bool              has_notice;
         NvU64             target_memory;
         spinlock_t        lock;

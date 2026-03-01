@@ -279,6 +279,9 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
 
     init_waitqueue_head(&va_space->va_space_mm.last_retainer_wait_queue);
     init_waitqueue_head(&va_space->gpu_va_space_deferred_free.wait_queue);
+    init_waitqueue_head(&va_space->eviction_notice.wait_queue);
+    spin_lock_init(&va_space->eviction_notice.lock);
+    va_space->eviction_notice.has_notice = false;
 
     va_space->mapping = mapping;
     va_space->test.page_prefetch_enabled = true;
