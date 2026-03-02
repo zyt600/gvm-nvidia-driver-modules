@@ -2221,6 +2221,19 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             evict_flags |= UVM_PMM_ALLOC_FLAGS_EVICT_FORCE;
             status = NV_ERR_NO_MEMORY;
         }
+        else if (gpu->mem_info.size > 0 && gpu->pmm.pma_stats) {
+            unsigned int high_watermark = get_gpu_mem_high_watermark();
+            unsigned int low_watermark = get_gpu_mem_low_watermark();
+            NvU64 available_bytes = (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages64k) * SZ_64K
+                                 + (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages2m) * SZ_2M;
+
+            if (high_watermark < 100 && available_bytes < gpu->mem_info.size * (100 - high_watermark) / 100) {
+                NvU64 target_available_bytes = gpu->mem_info.size * (100 - low_watermark) / 100;
+                NvU64 bytes_to_reclaim = target_available_bytes - available_bytes;
+                gvm_notify_all_processes_to_shrink(gpu, bytes_to_reclaim);
+            }
+            status = uvm_pmm_gpu_alloc_user_impl(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, (task) ? task->pid : 0, &gpu_chunk, &retry->tracker);
+        }
         else {
             // Try allocating a new one without eviction
             status = uvm_pmm_gpu_alloc_user_impl(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, (task) ? task->pid : 0, &gpu_chunk, &retry->tracker);

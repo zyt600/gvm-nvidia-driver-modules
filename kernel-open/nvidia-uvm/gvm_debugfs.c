@@ -965,6 +965,38 @@ void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid, Nv
     wake_up_interruptible(&va_space->eviction_notice.wait_queue);
 }
 
+// bytes_to_reclaim: the total bytes to reclaim from all processes on the GPU
+void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
+{
+    uvm_va_space_t *va_space;
+    NvU32 gpu_idx = uvm_id_gpu_index(gpu->id);
+    NvU64 total_process_usage = 0;
+
+    // First pass: sum up memory used by all processes on this GPU
+    uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
+        if (!va_space->gpu_cgroup)
+            continue;
+        total_process_usage += (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+    }
+
+    // Second pass: proportionally assign target to each process and notify
+    list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
+        if (!va_space->gpu_cgroup)
+            continue;
+
+        NvU64 process_current = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        if (process_current == 0)
+            continue;
+
+        NvU64 process_reclaim = bytes_to_reclaim * process_current / total_process_usage;
+        NvU64 process_target = process_current - process_reclaim;
+
+        gvm_send_eviction_notice(va_space, gpu->uuid, process_target);
+    }
+    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+}
+
 NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_NOTICE_PARAMS *params)
 {
     unsigned long flags;
