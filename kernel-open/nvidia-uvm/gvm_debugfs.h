@@ -20,7 +20,7 @@
 // Per-GPU debugfs directory structure
 struct gvm_gpu_debugfs {
     struct dentry *gpu_dir;          // /sys/kernel/debug/nvidia-uvm/processes/<pid>/<gpu_id>/
-    struct dentry *memory_limit;      // memory.limit file
+    struct dentry *memory_limit_high;  // memory.limit.high file
     struct dentry *memory_current;   // memory.current file (read-only)
     struct dentry *memory_swap_current;   // memory.swap.current file (read-only)
     struct dentry *compute_priority;     // compute.priority file

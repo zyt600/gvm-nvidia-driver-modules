@@ -50,8 +50,8 @@ static size_t _gvm_release_va_spaces(uvm_va_space_t **va_spaces, size_t size);
 // Per-process debugfs file operations
 //
 
-// Show memory limit for a specific process and GPU
-static int gvm_process_memory_limit_show(struct seq_file *m, void *data)
+// Show memory limit (high) for a specific process and GPU
+static int gvm_process_memory_limit_high_show(struct seq_file *m, void *data)
 {
     struct gvm_gpu_debugfs *gpu_debugfs;
     uvm_gpu_cgroup_t *gpu_cgroup;
@@ -69,9 +69,9 @@ static int gvm_process_memory_limit_show(struct seq_file *m, void *data)
     return 0;
 }
 
-// Set memory limit for a specific process and GPU
-static ssize_t gvm_process_memory_limit_write(struct file *file, const char __user *user_buf,
-                                             size_t count, loff_t *ppos)
+// Set memory limit (high) for a specific process and GPU
+static ssize_t gvm_process_memory_limit_high_write(struct file *file, const char __user *user_buf,
+                                                   size_t count, loff_t *ppos)
 {
     struct seq_file *m = file->private_data;
     struct gvm_gpu_debugfs *gpu_debugfs = m->private;
@@ -313,15 +313,15 @@ static int gvm_process_gcgroup_stat_show(struct seq_file *m, void *data)
 // File operation structures
 //
 
-static int gvm_process_memory_limit_open(struct inode *inode, struct file *file)
+static int gvm_process_memory_limit_high_open(struct inode *inode, struct file *file)
 {
-    return single_open(file, gvm_process_memory_limit_show, inode->i_private);
+    return single_open(file, gvm_process_memory_limit_high_show, inode->i_private);
 }
 
-static const struct file_operations gvm_process_memory_limit_fops = {
-    .open = gvm_process_memory_limit_open,
+static const struct file_operations gvm_process_memory_limit_high_fops = {
+    .open = gvm_process_memory_limit_high_open,
     .read = seq_read,
-    .write = gvm_process_memory_limit_write,
+    .write = gvm_process_memory_limit_high_write,
     .llseek = seq_lseek,
     .release = single_release,
 };
@@ -563,9 +563,9 @@ int gvm_debugfs_create_gpu_dir(pid_t pid, uvm_gpu_id_t gpu_id)
     }
 
     // Create files in GPU directory
-    gpu_debugfs->memory_limit = debugfs_create_file("memory.limit.high", 0644, gpu_debugfs->gpu_dir,
-                                                   gpu_debugfs, &gvm_process_memory_limit_fops);
-    if (!gpu_debugfs->memory_limit) {
+    gpu_debugfs->memory_limit_high = debugfs_create_file("memory.limit.high", 0644, gpu_debugfs->gpu_dir,
+                                                       gpu_debugfs, &gvm_process_memory_limit_high_fops);
+    if (!gpu_debugfs->memory_limit_high) {
         ret = -ENOMEM;
         goto cleanup;
     }
