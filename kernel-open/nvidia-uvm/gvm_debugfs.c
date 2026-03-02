@@ -989,7 +989,7 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
         if (process_current == 0)
             continue;
 
-        NvU64 process_reclaim = bytes_to_reclaim * process_current / total_process_usage;
+        NvU64 process_reclaim = mul_u64_u64_div_u64(bytes_to_reclaim, process_current, total_process_usage);
         NvU64 process_target = process_current - process_reclaim;
 
         gvm_send_eviction_notice(va_space, gpu->uuid, process_target);
