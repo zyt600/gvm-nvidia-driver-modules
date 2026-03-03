@@ -683,8 +683,14 @@ static ssize_t gvm_gpu_mem_high_watermark_write(struct file *file, const char __
     if (error != 0)
         return error;
 
-    if (val > 100 || val <= 0) {
-        UVM_ERR_PRINT("gpu_mem_high_watermark should be 0-100 but got %u\n", val);
+    if (val > 100 || val == 0) {
+        UVM_ERR_PRINT("gpu_mem_high_watermark must be 1-100 but got %u\n", val);
+        return -EINVAL;
+    }
+
+    if (val < gvm_gpu_mem_low_watermark) {
+        UVM_ERR_PRINT("gpu_mem_high_watermark (%u) must not be less than low_watermark (%u)\n",
+                       val, gvm_gpu_mem_low_watermark);
         return -EINVAL;
     }
 
@@ -731,8 +737,8 @@ static ssize_t gvm_gpu_mem_low_watermark_write(struct file *file, const char __u
     if (error != 0)
         return error;
 
-    if (val > 100 || val <= 0) {
-        UVM_ERR_PRINT("gpu_mem_low_watermark should be 0-100 but got %u\n", val);
+    if (val > 100 || val == 0) {
+        UVM_ERR_PRINT("gpu_mem_low_watermark must be 1-100 but got %u\n", val);
         return -EINVAL;
     }
 
