@@ -2224,8 +2224,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
         else if (gpu->mem_info.size > 0 && gpu->pmm.pma_stats) {
             unsigned int high_watermark = get_gpu_mem_high_watermark();
             unsigned int low_watermark = get_gpu_mem_low_watermark();
-            NvU64 available_bytes = (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages64k) * SZ_64K
-                                 + (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages2m) * SZ_2M;
+            NvU64 available_bytes = (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages64k) * SZ_64K;
 
             if (high_watermark < 100 && available_bytes < gpu->mem_info.size * (100 - high_watermark) / 100) {
                 NvU64 target_available_bytes = gpu->mem_info.size * (100 - low_watermark) / 100;
