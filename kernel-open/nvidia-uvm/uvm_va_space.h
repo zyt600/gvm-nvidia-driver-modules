@@ -360,17 +360,20 @@ struct uvm_va_space_struct
     // A pointer to a [UVM_ID_MAX_GPUS] array whose element is uvm_gpu_cgroup_t
     uvm_gpu_cgroup_t *gpu_cgroup;
 
-    // Kernel-to-user eviction notice mailbox. The kernel sets target_memory
-    // when memory pressure is detected, then wakes the user-space
-    // thread blocking in UVM_WAIT_EVICTION_NOTICE ioctl.
+    // GPU memory eviction state. When memory pressure is detected, the kernel
+    // sets target_memory and wakes the user-space thread blocking in
+    // UVM_WAIT_EVICTION_NOTICE ioctl. If the process does not shrink within
+    // the grace period, force_shrink_work evicts memory.
     struct
     {
-        wait_queue_head_t wait_queue;
-        bool              has_notice;
-        NvProcessorUuid   uuid;
-        NvU64             target_memory;
-        spinlock_t        lock;
-    } eviction_notice;
+        wait_queue_head_t   wait_queue;
+        bool                has_notice;
+        NvProcessorUuid     uuid;
+        NvU64               target_memory;
+        spinlock_t          lock;
+        struct delayed_work force_shrink_work;
+        uvm_gpu_id_t        gpu_id;
+    } eviction;
 
     // Tracking of GPU VA spaces which have dropped the VA space lock and are
     // pending destruction. uvm_va_space_mm_shutdown has to wait for those

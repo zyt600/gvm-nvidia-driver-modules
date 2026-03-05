@@ -279,9 +279,10 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
 
     init_waitqueue_head(&va_space->va_space_mm.last_retainer_wait_queue);
     init_waitqueue_head(&va_space->gpu_va_space_deferred_free.wait_queue);
-    init_waitqueue_head(&va_space->eviction_notice.wait_queue);
-    spin_lock_init(&va_space->eviction_notice.lock);
-    va_space->eviction_notice.has_notice = false;
+    init_waitqueue_head(&va_space->eviction.wait_queue);
+    spin_lock_init(&va_space->eviction.lock);
+    va_space->eviction.has_notice = false;
+    INIT_DELAYED_WORK(&va_space->eviction.force_shrink_work, gvm_force_shrink_work_fn);
 
     va_space->mapping = mapping;
     va_space->test.page_prefetch_enabled = true;
@@ -523,6 +524,8 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_del(&va_space->list_node);
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+
+    cancel_delayed_work_sync(&va_space->eviction.force_shrink_work);
 
     while (atomic64_read(&va_space->num_debugfs_refs));
 

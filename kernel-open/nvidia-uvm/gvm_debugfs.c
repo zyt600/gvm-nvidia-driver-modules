@@ -25,6 +25,9 @@ static unsigned int gvm_gpu_mem_high_watermark = 95;
 // drops below this threshold.
 static unsigned int gvm_gpu_mem_low_watermark = 85;
 
+static unsigned int gvm_eviction_grace_period_ms = 100;
+static unsigned int gvm_eviction_notify_throttle_ms = 1000;
+
 // Hash table for per-process debugfs directories
 #define GVM_DEBUGFS_HASH_BITS 8
 static DEFINE_HASHTABLE(gvm_debugfs_dirs, GVM_DEBUGFS_HASH_BITS);
@@ -765,6 +768,102 @@ static const struct file_operations gvm_gpu_mem_low_watermark_fops = {
     .release = single_release,
 };
 
+static int gvm_eviction_grace_period_show(struct seq_file *m, void *data)
+{
+    seq_printf(m, "%u\n", gvm_eviction_grace_period_ms);
+    return 0;
+}
+
+static ssize_t gvm_eviction_grace_period_write(struct file *file, const char __user *user_buf,
+                                               size_t count, loff_t *ppos)
+{
+    char buf[32];
+    unsigned int val;
+    int error;
+
+    if (count >= sizeof(buf))
+        return -EINVAL;
+
+    if (copy_from_user(buf, user_buf, count))
+        return -EFAULT;
+
+    buf[count] = '\0';
+
+    error = kstrtouint(buf, 10, &val);
+    if (error != 0)
+        return error;
+
+    if (val >= gvm_eviction_notify_throttle_ms) {
+        UVM_ERR_PRINT("eviction_grace_period_ms (%u) must be less than notify_throttle_ms (%u)\n",
+                       val, gvm_eviction_notify_throttle_ms);
+        return -EINVAL;
+    }
+
+    gvm_eviction_grace_period_ms = val;
+    return count;
+}
+
+static int gvm_eviction_grace_period_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, gvm_eviction_grace_period_show, NULL);
+}
+
+static const struct file_operations gvm_eviction_grace_period_fops = {
+    .open = gvm_eviction_grace_period_open,
+    .read = seq_read,
+    .write = gvm_eviction_grace_period_write,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+
+static int gvm_eviction_notify_throttle_show(struct seq_file *m, void *data)
+{
+    seq_printf(m, "%u\n", gvm_eviction_notify_throttle_ms);
+    return 0;
+}
+
+static ssize_t gvm_eviction_notify_throttle_write(struct file *file, const char __user *user_buf,
+                                                   size_t count, loff_t *ppos)
+{
+    char buf[32];
+    unsigned int val;
+    int error;
+
+    if (count >= sizeof(buf))
+        return -EINVAL;
+
+    if (copy_from_user(buf, user_buf, count))
+        return -EFAULT;
+
+    buf[count] = '\0';
+
+    error = kstrtouint(buf, 10, &val);
+    if (error != 0)
+        return error;
+
+    if (val <= gvm_eviction_grace_period_ms) {
+        UVM_ERR_PRINT("eviction_notify_throttle_ms (%u) must be greater than grace_period_ms (%u)\n",
+                       val, gvm_eviction_grace_period_ms);
+        return -EINVAL;
+    }
+
+    gvm_eviction_notify_throttle_ms = val;
+    return count;
+}
+
+static int gvm_eviction_notify_throttle_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, gvm_eviction_notify_throttle_show, NULL);
+}
+
+static const struct file_operations gvm_eviction_notify_throttle_fops = {
+    .open = gvm_eviction_notify_throttle_open,
+    .read = seq_read,
+    .write = gvm_eviction_notify_throttle_write,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+
 int gvm_debugfs_init(void)
 {
     // Create root directory
@@ -788,6 +887,14 @@ int gvm_debugfs_init(void)
 
     if (!debugfs_create_file("memory.watermark.low", 0644, gvm_debugfs_root, NULL,
                              &gvm_gpu_mem_low_watermark_fops))
+        goto cleanup_processes;
+
+    if (!debugfs_create_file("eviction.grace_period_ms", 0644, gvm_debugfs_root, NULL,
+                             &gvm_eviction_grace_period_fops))
+        goto cleanup_processes;
+
+    if (!debugfs_create_file("eviction.notify_throttle_ms", 0644, gvm_debugfs_root, NULL,
+                             &gvm_eviction_notify_throttle_fops))
         goto cleanup_processes;
 
     return 0;
@@ -958,27 +1065,56 @@ NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_s
     return NV_OK;
 }
 
-void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid, NvU64 target_memory)
+void gvm_force_shrink_work_fn(struct work_struct *work)
+{
+    struct delayed_work *dwork = to_delayed_work(work);
+    uvm_va_space_t *va_space = container_of(dwork, uvm_va_space_t,
+                                            eviction.force_shrink_work);
+    NvU64 target_memory = va_space->eviction.target_memory;
+    uvm_gpu_id_t gpu_id = va_space->eviction.gpu_id;
+    size_t current_memory;
+
+    if (!va_space->gpu_cgroup)
+        return;
+
+    current_memory = (size_t)atomic64_read(
+        &va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_current);
+
+    if (current_memory > target_memory) {
+        uvm_debugfs_api_charge_gpu_memory_limit(va_space, gpu_id,
+                                                current_memory,
+                                                (size_t)target_memory);
+    }
+}
+
+void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
+                              NvU64 target_memory)
 {
     unsigned long flags;
 
-    spin_lock_irqsave(&va_space->eviction_notice.lock, flags);
-    va_space->eviction_notice.uuid = uuid;
-    va_space->eviction_notice.target_memory = target_memory;
-    va_space->eviction_notice.has_notice = true;
-    spin_unlock_irqrestore(&va_space->eviction_notice.lock, flags);
+    spin_lock_irqsave(&va_space->eviction.lock, flags);
+    va_space->eviction.uuid = uuid;
+    va_space->eviction.target_memory = target_memory;
+    va_space->eviction.has_notice = true;
+    spin_unlock_irqrestore(&va_space->eviction.lock, flags);
 
-    wake_up_interruptible(&va_space->eviction_notice.wait_queue);
+    wake_up_interruptible(&va_space->eviction.wait_queue);
 }
 
 // bytes_to_reclaim: the total bytes to reclaim from all processes on the GPU
 void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
 {
+    static unsigned long last_notify_jiffies;
+    unsigned long now = jiffies;
     uvm_va_space_t *va_space;
     NvU32 gpu_idx = uvm_id_gpu_index(gpu->id);
     NvU64 total_process_usage = 0;
 
-    // First pass: sum up memory used by all processes on this GPU
+    if (time_before(now, last_notify_jiffies +
+                         msecs_to_jiffies(gvm_eviction_notify_throttle_ms)))
+        return;
+    last_notify_jiffies = now;
+
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
@@ -986,7 +1122,6 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
         total_process_usage += (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
     }
 
-    // Second pass: proportionally assign target to each process and notify
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
             continue;
@@ -999,6 +1134,10 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
         NvU64 process_target = process_current - process_reclaim;
 
         gvm_send_eviction_notice(va_space, gpu->uuid, process_target);
+
+        va_space->eviction.gpu_id = gpu->id;
+        schedule_delayed_work(&va_space->eviction.force_shrink_work,
+                              msecs_to_jiffies(gvm_eviction_grace_period_ms));
     }
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
 }
@@ -1008,16 +1147,16 @@ NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_N
     unsigned long flags;
     int ret;
 
-    ret = wait_event_interruptible(va_space->eviction_notice.wait_queue,
-                                   va_space->eviction_notice.has_notice);
+    ret = wait_event_interruptible(va_space->eviction.wait_queue,
+                                   va_space->eviction.has_notice);
     if (ret)
         return NV_ERR_SIGNAL_PENDING;
 
-    spin_lock_irqsave(&va_space->eviction_notice.lock, flags);
-    params->uuid = va_space->eviction_notice.uuid;
-    params->target_memory = va_space->eviction_notice.target_memory;
-    va_space->eviction_notice.has_notice = false;
-    spin_unlock_irqrestore(&va_space->eviction_notice.lock, flags);
+    spin_lock_irqsave(&va_space->eviction.lock, flags);
+    params->uuid = va_space->eviction.uuid;
+    params->target_memory = va_space->eviction.target_memory;
+    va_space->eviction.has_notice = false;
+    spin_unlock_irqrestore(&va_space->eviction.lock, flags);
 
     return NV_OK;
 }
