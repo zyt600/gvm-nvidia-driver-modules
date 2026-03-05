@@ -1080,7 +1080,9 @@ void gvm_force_shrink_work_fn(struct work_struct *work)
         return;
 
     current_memory = (size_t)atomic64_read(
-        &va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_current);
+        &va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_current)
+        + (size_t)atomic64_read(
+        &va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_swap_current);
 
     if (current_memory > target_memory) {
         uvm_debugfs_api_charge_gpu_memory_limit(va_space, gpu_id,
@@ -1123,14 +1125,16 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
             continue;
-        total_process_usage += (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        total_process_usage += (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current)
+                             + (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
     }
 
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
             continue;
 
-        NvU64 process_current = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        NvU64 process_current = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current)
+                              + (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
         if (process_current == 0)
             continue;
 
