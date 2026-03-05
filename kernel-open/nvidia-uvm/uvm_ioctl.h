@@ -1184,9 +1184,10 @@ typedef struct
 #define UVM_WAIT_EVICTION_NOTICE                                      UVM_IOCTL_BASE(82)
 typedef struct
 {
-    NvProcessorUuid uuid;          // OUT: UUID of the GPU under memory pressure
-    NvU64           target_memory; // OUT: target memory budget for this process (bytes)
-    NV_STATUS       rmStatus;      // OUT
+    NvProcessorUuid uuid;           // OUT: UUID of the GPU under memory pressure
+    NvU64           target_memory;  // OUT: target memory budget for this process (bytes)
+    NvU64           current_memory; // OUT: current memory usage of this process (bytes)
+    NV_STATUS       rmStatus;       // OUT
 } UVM_WAIT_EVICTION_NOTICE_PARAMS;
 
 //

@@ -370,6 +370,7 @@ struct uvm_va_space_struct
         bool                has_notice;
         NvProcessorUuid     uuid;
         NvU64               target_memory;
+        NvU64               current_memory;
         spinlock_t          lock;
         struct delayed_work force_shrink_work;
         uvm_gpu_id_t        gpu_id;

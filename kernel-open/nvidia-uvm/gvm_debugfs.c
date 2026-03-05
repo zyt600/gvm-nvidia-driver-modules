@@ -1088,13 +1088,14 @@ void gvm_force_shrink_work_fn(struct work_struct *work)
 }
 
 void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
-                              NvU64 target_memory)
+                              NvU64 target_memory, NvU64 current_memory)
 {
     unsigned long flags;
 
     spin_lock_irqsave(&va_space->eviction.lock, flags);
     va_space->eviction.uuid = uuid;
     va_space->eviction.target_memory = target_memory;
+    va_space->eviction.current_memory = current_memory;
     va_space->eviction.has_notice = true;
     spin_unlock_irqrestore(&va_space->eviction.lock, flags);
 
@@ -1133,7 +1134,7 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
         NvU64 process_reclaim = mul_u64_u64_div_u64(bytes_to_reclaim, process_current, total_process_usage);
         NvU64 process_target = process_current - process_reclaim;
 
-        gvm_send_eviction_notice(va_space, gpu->uuid, process_target);
+        gvm_send_eviction_notice(va_space, gpu->uuid, process_target, process_current);
 
         va_space->eviction.gpu_id = gpu->id;
         schedule_delayed_work(&va_space->eviction.force_shrink_work,
@@ -1155,6 +1156,7 @@ NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_N
     spin_lock_irqsave(&va_space->eviction.lock, flags);
     params->uuid = va_space->eviction.uuid;
     params->target_memory = va_space->eviction.target_memory;
+    params->current_memory = va_space->eviction.current_memory;
     va_space->eviction.has_notice = false;
     spin_unlock_irqrestore(&va_space->eviction.lock, flags);
 
