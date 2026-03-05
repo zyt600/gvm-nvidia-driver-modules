@@ -174,6 +174,7 @@
 #include "uvm_va_range.h"
 #include "uvm_test.h"
 #include "uvm_linux.h"
+#include "gvm_debugfs.h"
 
 #if defined(CONFIG_PCI_P2PDMA) && defined(NV_STRUCT_PAGE_HAS_ZONE_DEVICE_DATA)
 #include <linux/pci-p2pdma.h>
@@ -2580,6 +2581,15 @@ void free_chunk(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk)
 
     if (try_free)
         (void)free_next_available_root_chunk(pmm, type);
+    uvm_gpu_t *gpu = uvm_pmm_to_gpu(pmm);
+    if (gpu->mem_info.size > 0 && gpu->pmm.pma_stats) {
+        unsigned int low_watermark = get_gpu_mem_low_watermark();
+        NvU64 available_bytes = (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages64k) * SZ_64K;
+        NvU64 low_threshold = gpu->mem_info.size * (100 - low_watermark) / 100;
+
+        if (available_bytes > low_threshold)
+            gvm_notify_all_processes_memory_available(gpu, available_bytes);
+    }
 }
 
 // Finds and frees the next root chunk of the given type (if any) that can be

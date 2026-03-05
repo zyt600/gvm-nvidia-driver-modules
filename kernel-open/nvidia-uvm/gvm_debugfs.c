@@ -28,6 +28,8 @@ static unsigned int gvm_gpu_mem_low_watermark = 85;
 static unsigned int gvm_eviction_grace_period_ms = 100;
 static unsigned int gvm_eviction_notify_throttle_ms = 1000;
 
+static atomic_long_t last_eviction_notify_jiffies = ATOMIC_LONG_INIT(0);
+
 // Hash table for per-process debugfs directories
 #define GVM_DEBUGFS_HASH_BITS 8
 static DEFINE_HASHTABLE(gvm_debugfs_dirs, GVM_DEBUGFS_HASH_BITS);
@@ -1105,16 +1107,17 @@ void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
 // bytes_to_reclaim: the total bytes to reclaim from all processes on the GPU
 void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
 {
-    static unsigned long last_notify_jiffies;
     unsigned long now = jiffies;
+    unsigned long last;
     uvm_va_space_t *va_space;
     NvU32 gpu_idx = uvm_id_gpu_index(gpu->id);
     NvU64 total_process_usage = 0;
 
-    if (time_before(now, last_notify_jiffies +
-                         msecs_to_jiffies(gvm_eviction_notify_throttle_ms)))
+    last = atomic_long_read(&last_eviction_notify_jiffies);
+    if (time_before(now, last + msecs_to_jiffies(gvm_eviction_notify_throttle_ms)))
         return;
-    last_notify_jiffies = now;
+    if (atomic_long_cmpxchg(&last_eviction_notify_jiffies, last, now) != last)
+        return;
 
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
@@ -1159,6 +1162,70 @@ NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_N
     params->current_memory = va_space->eviction.current_memory;
     va_space->eviction.has_notice = false;
     spin_unlock_irqrestore(&va_space->eviction.lock, flags);
+
+    return NV_OK;
+}
+
+void gvm_send_availability_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
+                                  NvU64 available_memory)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&va_space->availability.lock, flags);
+    if (va_space->availability.has_notice) {
+        spin_unlock_irqrestore(&va_space->availability.lock, flags);
+        return;
+    }
+    va_space->availability.uuid = uuid;
+    va_space->availability.available_memory = available_memory;
+    va_space->availability.has_notice = true;
+    spin_unlock_irqrestore(&va_space->availability.lock, flags);
+
+    wake_up_interruptible(&va_space->availability.wait_queue);
+}
+
+void gvm_notify_all_processes_memory_available(uvm_gpu_t *gpu, NvU64 available_bytes)
+{
+    unsigned long now = jiffies;
+    unsigned long last;
+    uvm_va_space_t *va_space;
+
+    last = atomic_long_read(&last_eviction_notify_jiffies);
+    if (time_before(now, last + msecs_to_jiffies(gvm_eviction_notify_throttle_ms)))
+        return;
+    if (atomic_long_cmpxchg(&last_eviction_notify_jiffies, last, now) != last)
+        return;
+
+    uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
+        if (!va_space->gpu_cgroup)
+            continue;
+
+        NvU32 gpu_idx = uvm_id_gpu_index(gpu->id);
+        NvU64 process_current = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        if (process_current == 0)
+            continue;
+
+        gvm_send_availability_notice(va_space, gpu->uuid, available_bytes);
+    }
+    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+}
+
+NV_STATUS gvm_wait_availability_notice(uvm_va_space_t *va_space, UVM_WAIT_AVAILABILITY_NOTICE_PARAMS *params)
+{
+    unsigned long flags;
+    int ret;
+
+    ret = wait_event_interruptible(va_space->availability.wait_queue,
+                                   va_space->availability.has_notice);
+    if (ret)
+        return NV_ERR_SIGNAL_PENDING;
+
+    spin_lock_irqsave(&va_space->availability.lock, flags);
+    params->uuid = va_space->availability.uuid;
+    params->available_memory = va_space->availability.available_memory;
+    va_space->availability.has_notice = false;
+    spin_unlock_irqrestore(&va_space->availability.lock, flags);
 
     return NV_OK;
 }

@@ -65,4 +65,9 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim);
 NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_NOTICE_PARAMS *params);
 void gvm_force_shrink_work_fn(struct work_struct *work);
 
+void gvm_send_availability_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
+                                  NvU64 available_memory);
+void gvm_notify_all_processes_memory_available(uvm_gpu_t *gpu, NvU64 available_bytes);
+NV_STATUS gvm_wait_availability_notice(uvm_va_space_t *va_space, UVM_WAIT_AVAILABILITY_NOTICE_PARAMS *params);
+
 #endif  // _GVM_DEBUGFS_H

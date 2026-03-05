@@ -284,6 +284,10 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
     va_space->eviction.has_notice = false;
     INIT_DELAYED_WORK(&va_space->eviction.force_shrink_work, gvm_force_shrink_work_fn);
 
+    init_waitqueue_head(&va_space->availability.wait_queue);
+    spin_lock_init(&va_space->availability.lock);
+    va_space->availability.has_notice = false;
+
     va_space->mapping = mapping;
     va_space->test.page_prefetch_enabled = true;
 

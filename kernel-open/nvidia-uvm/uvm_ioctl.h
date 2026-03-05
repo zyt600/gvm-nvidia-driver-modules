@@ -1190,6 +1190,14 @@ typedef struct
     NV_STATUS       rmStatus;       // OUT
 } UVM_WAIT_EVICTION_NOTICE_PARAMS;
 
+#define UVM_WAIT_AVAILABILITY_NOTICE                                  UVM_IOCTL_BASE(83)
+typedef struct
+{
+    NvProcessorUuid uuid;             // OUT: UUID of the GPU that now has free memory
+    NvU64           available_memory; // todo  OUT: available GPU memory (bytes)
+    NV_STATUS       rmStatus;         // OUT
+} UVM_WAIT_AVAILABILITY_NOTICE_PARAMS;
+
 //
 // Temporary ioctls which should be removed before UVM 8 release
 // Number backwards from 2047 - highest custom ioctl function number

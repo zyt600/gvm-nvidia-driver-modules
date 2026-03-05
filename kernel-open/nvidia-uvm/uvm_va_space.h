@@ -376,6 +376,17 @@ struct uvm_va_space_struct
         uvm_gpu_id_t        gpu_id;
     } eviction;
 
+    // GPU memory availability state. When memory is below the low watermark,
+    // the kernel wakes the user-space thread blocking in UVM_WAIT_AVAILABILITY_NOTICE ioctl.
+    struct
+    {
+        wait_queue_head_t   wait_queue;
+        bool                has_notice;
+        NvProcessorUuid     uuid;
+        NvU64               available_memory;
+        spinlock_t          lock;
+    } availability;
+
     // Tracking of GPU VA spaces which have dropped the VA space lock and are
     // pending destruction. uvm_va_space_mm_shutdown has to wait for those
     // destroy operations to be completely done.
