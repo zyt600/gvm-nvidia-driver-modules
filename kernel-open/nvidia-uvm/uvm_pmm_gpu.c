@@ -1649,7 +1649,8 @@ static NV_STATUS pick_and_evict_root_chunk(uvm_pmm_gpu_t *pmm,
     uvm_gpu_chunk_t *chunk;
     uvm_gpu_root_chunk_t *root_chunk;
     uvm_va_space_t *va_space;
-    size_t memory_current, memory_limit;
+    size_t memory_current, memory_limit_high, memory_limit_min;
+    size_t skip_count = 0;
 
     UVM_ASSERT(uvm_parent_gpu_supports_eviction(gpu->parent));
 
@@ -1661,12 +1662,28 @@ static NV_STATUS pick_and_evict_root_chunk(uvm_pmm_gpu_t *pmm,
             return NV_ERR_NO_MEMORY;
 
         chunk = &root_chunk->chunk;
+        memory_current = 0;
+        memory_limit_high = 0;
+        memory_limit_min = 0;
+        va_space = NULL;
         if (chunk->va_block) {
             va_space = uvm_va_block_get_va_space_maybe_dead(chunk->va_block);
             if (va_space) {
                 memory_current = atomic64_read(&(va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_current));
-                memory_limit = va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_limit_high;
+                memory_limit_high = va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_limit_high;
+                memory_limit_min = va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_limit_min;
             }
+        }
+
+        if (!(flags & UVM_PMM_ALLOC_FLAGS_EVICT_FORCE) && va_space &&
+            memory_limit_min > 0 && memory_current <= memory_limit_min) {
+            uvm_spin_lock(&pmm->list_lock);
+            uvm_gpu_chunk_set_in_eviction(chunk, false);
+            chunk_update_lists_locked(pmm, chunk);
+            uvm_spin_unlock(&pmm->list_lock);
+            if (++skip_count >= pmm->root_chunks.count)
+                return NV_ERR_NO_MEMORY;
+            continue;
         }
 
         status = evict_root_chunk(pmm, root_chunk, pmm_context);
@@ -1704,7 +1721,7 @@ static NV_STATUS pick_and_evict_root_chunk(uvm_pmm_gpu_t *pmm,
             uvm_spin_unlock(&pmm->list_lock);
         }
 
-        if (memory_current <= memory_limit || !(flags & UVM_PMM_ALLOC_FLAGS_EVICT_FORCE)) {
+        if (memory_current <= memory_limit_high || !(flags & UVM_PMM_ALLOC_FLAGS_EVICT_FORCE)) {
             if (!sync) {
                 free_root_chunk_lazy(root_chunk);
             }

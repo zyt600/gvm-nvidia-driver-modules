@@ -1254,7 +1254,7 @@ void gvm_force_shrink_work_fn(struct work_struct *work)
     struct delayed_work *dwork = to_delayed_work(work);
     uvm_va_space_t *va_space = container_of(dwork, uvm_va_space_t,
                                             eviction.force_shrink_work);
-    NvU64 target_memory = va_space->eviction.target_memory;
+    NvU64 target_memory = va_space->eviction.target_memory; // target physical memory (bytes)
     uvm_gpu_id_t gpu_id = va_space->eviction.gpu_id;
     size_t current_memory;
 
@@ -1288,14 +1288,14 @@ void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
     wake_up_interruptible(&va_space->eviction.wait_queue);
 }
 
-// bytes_to_reclaim: the total bytes to reclaim from all processes on the GPU
+// bytes_to_reclaim: the target total physical memory bytes 
+// to reclaim from all processes on the GPU, always > 0
 void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
 {
     unsigned long now = jiffies;
     unsigned long last;
     uvm_va_space_t *va_space;
     NvU32 gpu_idx = uvm_id_gpu_index(gpu->id);
-    NvU64 total_process_usage = 0;
 
     last = atomic_long_read(&last_eviction_notify_jiffies);
     if (time_before(now, last + msecs_to_jiffies(gvm_eviction_notify_throttle_ms)))
@@ -1304,26 +1304,51 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
         return;
 
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+
+    NvU64 total_above_low = 0;
+    NvU64 total_above_min = 0;
+
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
             continue;
-        total_process_usage += (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current)
-                             + (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
+
+        NvU64 current_physical_mem = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        NvU64 limit_low = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_low;
+        NvU64 limit_min = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_min;
+        NvU64 above_low = (current_physical_mem > limit_low) ? current_physical_mem - limit_low : 0;
+        NvU64 above_min = (current_physical_mem > limit_min) ? current_physical_mem - limit_min : 0;
+
+        total_above_low += above_low;
+        total_above_min += above_min;
     }
 
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
             continue;
 
-        NvU64 process_current = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current)
-                              + (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
-        if (process_current == 0)
+        NvU64 current_physical_mem = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        NvU64 current_swap_mem = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
+        NvU64 limit_low = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_low;
+        NvU64 limit_min = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_min;
+        NvU64 above_low = (current_physical_mem > limit_low) ? current_physical_mem - limit_low : 0;
+        NvU64 above_min = (current_physical_mem > limit_min) ? current_physical_mem - limit_min : 0;
+        NvU64 reclaim_physical_mem = 0;
+
+        if (bytes_to_reclaim <= total_above_low) {
+            reclaim_physical_mem = mul_u64_u64_div_u64(above_low, bytes_to_reclaim, total_above_low);
+        } else if (bytes_to_reclaim <= total_above_min) {
+            reclaim_physical_mem = mul_u64_u64_div_u64(above_min, bytes_to_reclaim, total_above_min);
+        } else {
+            reclaim_physical_mem = above_min;
+        }
+
+        NvU64 target_physical_mem = current_physical_mem - reclaim_physical_mem;
+
+        if (current_physical_mem == 0)
             continue;
 
-        NvU64 process_reclaim = mul_u64_u64_div_u64(bytes_to_reclaim, process_current, total_process_usage);
-        NvU64 process_target = process_current - process_reclaim;
-
-        gvm_send_eviction_notice(va_space, gpu->uuid, process_target, process_current);
+        gvm_send_eviction_notice(va_space, gpu->uuid, target_physical_mem,
+                                 current_physical_mem + current_swap_mem);
 
         va_space->eviction.gpu_id = gpu->id;
         schedule_delayed_work(&va_space->eviction.force_shrink_work,

@@ -371,8 +371,8 @@ struct uvm_va_space_struct
         wait_queue_head_t   wait_queue;
         bool                has_notice;
         NvProcessorUuid     uuid;
-        NvU64               target_memory;
-        NvU64               current_memory;
+        NvU64               target_memory;  // target physical memory usage (bytes)
+        NvU64               current_memory; // current total memory, physical + swap (bytes)
         spinlock_t          lock;
         struct delayed_work force_shrink_work;
         uvm_gpu_id_t        gpu_id;

@@ -1185,8 +1185,8 @@ typedef struct
 typedef struct
 {
     NvProcessorUuid uuid;           // OUT: UUID of the GPU under memory pressure
-    NvU64           target_memory;  // OUT: target memory budget for this process (bytes)
-    NvU64           current_memory; // OUT: current memory usage of this process (bytes)
+    NvU64           target_memory;  // OUT: target physical memory usage (bytes)
+    NvU64           current_memory; // OUT: current total memory usage, physical + swap (bytes)
     NV_STATUS       rmStatus;       // OUT
 } UVM_WAIT_EVICTION_NOTICE_PARAMS;
 

@@ -63,6 +63,8 @@ unsigned int get_gpu_mem_low_watermark(void);
 
 NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
 
+// target_memory: target physical memory usage for this process (bytes)
+// current_memory: current total memory usage, physical + swap (bytes)
 void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
                               NvU64 target_memory, NvU64 current_memory);
 void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim);
