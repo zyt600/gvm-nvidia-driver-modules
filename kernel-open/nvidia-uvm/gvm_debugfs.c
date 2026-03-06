@@ -1327,6 +1327,9 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
             continue;
 
         NvU64 current_physical_mem = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_current);
+        if (current_physical_mem == 0)
+            continue;
+
         NvU64 current_swap_mem = (NvU64)atomic64_read(&va_space->gpu_cgroup[gpu_idx].memory_swap_current);
         NvU64 limit_low = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_low;
         NvU64 limit_min = (NvU64)va_space->gpu_cgroup[gpu_idx].memory_limit_min;
@@ -1342,10 +1345,10 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
             reclaim_physical_mem = above_min;
         }
 
-        NvU64 target_physical_mem = current_physical_mem - reclaim_physical_mem;
-
-        if (current_physical_mem == 0)
+        if (reclaim_physical_mem == 0)
             continue;
+
+        NvU64 target_physical_mem = current_physical_mem - reclaim_physical_mem;
 
         gvm_send_eviction_notice(va_space, gpu->uuid, target_physical_mem,
                                  current_physical_mem + current_swap_mem);
