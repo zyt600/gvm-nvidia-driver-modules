@@ -69,7 +69,7 @@ static int gvm_process_memory_limit_high_show(struct seq_file *m, void *data)
     if (!gpu_cgroup)
         return -ENOENT;
 
-    seq_printf(m, "%zu\n", gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit);
+    seq_printf(m, "%zu\n", gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit_high);
 
     return 0;
 }
@@ -109,7 +109,7 @@ static ssize_t gvm_process_memory_limit_high_write(struct file *file, const char
 
         uvm_debugfs_api_charge_gpu_memory_limit(va_spaces[va_space_index], gpu_debugfs->gpu_id,
                 atomic64_read(&(va_spaces[va_space_index]->gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_current)), limit);
-        va_spaces[va_space_index]->gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit = limit;
+        va_spaces[va_space_index]->gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit_high = limit;
     }
 
     _gvm_release_va_spaces(va_spaces, va_space_count);
@@ -331,6 +331,76 @@ static const struct file_operations gvm_process_memory_limit_high_fops = {
     .release = single_release,
 };
 
+static int gvm_process_memory_limit_low_show(struct seq_file *m, void *data)
+{
+    struct gvm_gpu_debugfs *gpu_debugfs;
+    uvm_gpu_cgroup_t *gpu_cgroup;
+
+    gpu_debugfs = m->private;
+    if (!gpu_debugfs)
+        return -ENOENT;
+
+    gpu_cgroup = _gvm_find_gpu_cgroup_by_pid(gpu_debugfs->pid);
+    if (!gpu_cgroup)
+        return -ENOENT;
+
+    seq_printf(m, "%zu\n", gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit_low);
+
+    return 0;
+}
+
+static ssize_t gvm_process_memory_limit_low_write(struct file *file, const char __user *user_buf,
+                                                   size_t count, loff_t *ppos)
+{
+    struct seq_file *m = file->private_data;
+    struct gvm_gpu_debugfs *gpu_debugfs = m->private;
+    uvm_va_space_t *va_spaces[GVM_MAX_VA_SPACES];
+    size_t va_space_index;
+    size_t va_space_count;
+    char buf[32];
+    size_t limit_low;
+    int error;
+
+    if (count >= sizeof(buf))
+        return -EINVAL;
+
+    if (copy_from_user(buf, user_buf, count))
+        return -EFAULT;
+
+    buf[count] = '\0';
+
+    error = kstrtoul(buf, 10, (unsigned long *) &limit_low);
+    if (error != 0)
+        return error;
+
+    va_space_count = _gvm_find_and_acquire_va_spaces_by_pid(gpu_debugfs->pid, va_spaces, GVM_MAX_VA_SPACES);
+    if (va_space_count == 0)
+        return -ENOENT;
+
+    for (va_space_index = 0; va_space_index < va_space_count; ++va_space_index) {
+        if (va_spaces[va_space_index]->gpu_cgroup == NULL)
+            continue;
+
+        va_spaces[va_space_index]->gpu_cgroup[uvm_id_gpu_index(gpu_debugfs->gpu_id)].memory_limit_low = limit_low;
+    }
+
+    _gvm_release_va_spaces(va_spaces, va_space_count);
+    return count;
+}
+
+static int gvm_process_memory_limit_low_open(struct inode *inode, struct file *file)
+{
+    return single_open(file, gvm_process_memory_limit_low_show, inode->i_private);
+}
+
+static const struct file_operations gvm_process_memory_limit_low_fops = {
+    .open = gvm_process_memory_limit_low_open,
+    .read = seq_read,
+    .write = gvm_process_memory_limit_low_write,
+    .llseek = seq_lseek,
+    .release = single_release,
+};
+
 static int gvm_process_memory_current_open(struct inode *inode, struct file *file)
 {
     return single_open(file, gvm_process_memory_current_show, inode->i_private);
@@ -547,7 +617,8 @@ int gvm_debugfs_create_gpu_dir(pid_t pid, uvm_gpu_id_t gpu_id)
 
     if (va_space) {
         UVM_ASSERT(va_space->gpu_cgroup != NULL);
-        va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit = -1ULL;
+        va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit_high = -1ULL;
+        va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit_low = 0;
         atomic64_set(&(va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_current), 0);
         atomic64_set(&(va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_swap_current), 0);
 
@@ -571,6 +642,13 @@ int gvm_debugfs_create_gpu_dir(pid_t pid, uvm_gpu_id_t gpu_id)
     gpu_debugfs->memory_limit_high = debugfs_create_file("memory.limit.high", 0644, gpu_debugfs->gpu_dir,
                                                        gpu_debugfs, &gvm_process_memory_limit_high_fops);
     if (!gpu_debugfs->memory_limit_high) {
+        ret = -ENOMEM;
+        goto cleanup;
+    }
+
+    gpu_debugfs->memory_limit_low = debugfs_create_file("memory.limit.low", 0644, gpu_debugfs->gpu_dir,
+                                                       gpu_debugfs, &gvm_process_memory_limit_low_fops);
+    if (!gpu_debugfs->memory_limit_low) {
         ret = -ENOMEM;
         goto cleanup;
     }
@@ -1030,7 +1108,12 @@ size_t get_gpu_memcg_current(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
 
 size_t get_gpu_memcg_limit(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
     UVM_ASSERT(va_space->gpu_cgroup);
-    return va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit;
+    return va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit_high;
+}
+
+size_t get_gpu_memcg_limit_low(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id) {
+    UVM_ASSERT(va_space->gpu_cgroup);
+    return va_space->gpu_cgroup[uvm_id_gpu_index(gpu_id)].memory_limit_low;
 }
 
 unsigned int get_gpu_mem_high_watermark(void) {

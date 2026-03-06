@@ -1665,7 +1665,7 @@ static NV_STATUS pick_and_evict_root_chunk(uvm_pmm_gpu_t *pmm,
             va_space = uvm_va_block_get_va_space_maybe_dead(chunk->va_block);
             if (va_space) {
                 memory_current = atomic64_read(&(va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_current));
-                memory_limit = va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_limit;
+                memory_limit = va_space->gpu_cgroup[uvm_id_gpu_index(gpu->id)].memory_limit_high;
             }
         }
 
