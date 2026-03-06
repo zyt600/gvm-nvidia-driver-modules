@@ -145,6 +145,7 @@ struct uvm_gpu_cgroup_struct
 {
     size_t memory_limit_high;
     size_t memory_limit_low;
+    size_t memory_limit_min;
     atomic64_t memory_current;
     atomic64_t memory_swap_current;
 
