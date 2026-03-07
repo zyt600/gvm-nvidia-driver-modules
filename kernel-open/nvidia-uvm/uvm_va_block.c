@@ -9770,6 +9770,16 @@ static void block_kill(uvm_va_block_t *block)
 
     UVM_ASSERT(uvm_processor_mask_empty(&block->mapped));
 
+    // Uncharge swap for evicted pages before destroying GPU state
+    for_each_gpu_id_in_mask(id, &block->evicted_gpus) {
+        uvm_va_block_gpu_state_t *gpu_state = uvm_va_block_gpu_state_get(block, id);
+        if (gpu_state) {
+            NvU32 evicted_pages = uvm_page_mask_weight(&gpu_state->evicted);
+            if (evicted_pages > 0)
+                uvm_try_charge_gpu_memory_cgroup(block, id, (size_t)evicted_pages * PAGE_SIZE, true, true);
+        }
+    }
+
     // Free the GPU page tables and chunks
     for_each_gpu_id(id) {
         if (uvm_va_block_gpu_state_get(block, id)) {
