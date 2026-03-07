@@ -279,12 +279,11 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
 
     init_waitqueue_head(&va_space->va_space_mm.last_retainer_wait_queue);
     init_waitqueue_head(&va_space->gpu_va_space_deferred_free.wait_queue);
-    init_waitqueue_head(&va_space->eviction.wait_queue);
+    init_waitqueue_head(&va_space->notice_wait_queue);
     spin_lock_init(&va_space->eviction.lock);
     va_space->eviction.has_notice = false;
-    INIT_DELAYED_WORK(&va_space->eviction.force_shrink_work, gvm_force_shrink_work_fn);
+    INIT_DELAYED_WORK(&va_space->eviction.force_shrink_work, gvm_notice_force_shrink_work_fn);
 
-    init_waitqueue_head(&va_space->availability.wait_queue);
     spin_lock_init(&va_space->availability.lock);
     va_space->availability.has_notice = false;
 

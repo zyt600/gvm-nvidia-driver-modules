@@ -2605,7 +2605,7 @@ void free_chunk(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk)
         NvU64 low_threshold = gpu->mem_info.size * (100 - low_watermark) / 100;
 
         if (available_bytes > low_threshold)
-            gvm_notify_all_processes_memory_available(gpu, available_bytes);
+            gvm_notice_broadcast_availability(gpu, available_bytes);
     }
 }
 

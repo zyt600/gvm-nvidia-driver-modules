@@ -362,13 +362,16 @@ struct uvm_va_space_struct
     // A pointer to a [UVM_ID_MAX_GPUS] array whose element is uvm_gpu_cgroup_t
     uvm_gpu_cgroup_t *gpu_cgroup;
 
+    // Shared wait queue for all GVM notification types (eviction + availability).
+    // Woken when either has_notice flag is set.
+    wait_queue_head_t notice_wait_queue;
+
     // GPU memory eviction state. When memory pressure is detected, the kernel
     // sets target_memory and wakes the user-space thread blocking in
     // UVM_WAIT_EVICTION_NOTICE ioctl. If the process does not shrink within
     // the grace period, force_shrink_work evicts memory.
     struct
     {
-        wait_queue_head_t   wait_queue;
         bool                has_notice;
         NvProcessorUuid     uuid;
         NvU64               target_memory;  // target physical memory usage (bytes)
@@ -382,7 +385,6 @@ struct uvm_va_space_struct
     // the kernel wakes the user-space thread blocking in UVM_WAIT_AVAILABILITY_NOTICE ioctl.
     struct
     {
-        wait_queue_head_t   wait_queue;
         bool                has_notice;
         NvProcessorUuid     uuid;
         NvU64               available_memory;

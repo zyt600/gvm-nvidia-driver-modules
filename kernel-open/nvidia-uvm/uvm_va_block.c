@@ -2229,7 +2229,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             if (high_watermark < 100 && available_bytes < gpu->mem_info.size * (100 - high_watermark) / 100) {
                 NvU64 target_available_bytes = gpu->mem_info.size * (100 - low_watermark) / 100;
                 NvU64 bytes_to_reclaim = target_available_bytes - available_bytes;
-                gvm_notify_all_processes_to_shrink(gpu, bytes_to_reclaim);
+                gvm_notice_broadcast_eviction(gpu, bytes_to_reclaim);
             }
             status = uvm_pmm_gpu_alloc_user_impl(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, (task) ? task->pid : 0, &gpu_chunk, &retry->tracker);
         }

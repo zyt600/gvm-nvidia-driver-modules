@@ -1249,7 +1249,7 @@ NV_STATUS gvm_update_event_count(UVM_UPDATE_EVENT_COUNT_PARAMS *params, uvm_va_s
     return NV_OK;
 }
 
-void gvm_force_shrink_work_fn(struct work_struct *work)
+void gvm_notice_force_shrink_work_fn(struct work_struct *work)
 {
     struct delayed_work *dwork = to_delayed_work(work);
     uvm_va_space_t *va_space = container_of(dwork, uvm_va_space_t,
@@ -1285,12 +1285,12 @@ void gvm_send_eviction_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
     va_space->eviction.has_notice = true;
     spin_unlock_irqrestore(&va_space->eviction.lock, flags);
 
-    wake_up_interruptible(&va_space->eviction.wait_queue);
+    wake_up_interruptible(&va_space->notice_wait_queue);
 }
 
 // bytes_to_reclaim: the target total physical memory bytes 
 // to reclaim from all processes on the GPU, always > 0
-void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
+void gvm_notice_broadcast_eviction(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
 {
     unsigned long now = jiffies;
     unsigned long last;
@@ -1360,26 +1360,6 @@ void gvm_notify_all_processes_to_shrink(uvm_gpu_t *gpu, NvU64 bytes_to_reclaim)
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
 }
 
-NV_STATUS gvm_wait_eviction_notice(uvm_va_space_t *va_space, UVM_WAIT_EVICTION_NOTICE_PARAMS *params)
-{
-    unsigned long flags;
-    int ret;
-
-    ret = wait_event_interruptible(va_space->eviction.wait_queue,
-                                   va_space->eviction.has_notice);
-    if (ret)
-        return NV_ERR_SIGNAL_PENDING;
-
-    spin_lock_irqsave(&va_space->eviction.lock, flags);
-    params->uuid = va_space->eviction.uuid;
-    params->target_memory = va_space->eviction.target_memory;
-    params->current_memory = va_space->eviction.current_memory;
-    va_space->eviction.has_notice = false;
-    spin_unlock_irqrestore(&va_space->eviction.lock, flags);
-
-    return NV_OK;
-}
-
 void gvm_send_availability_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid,
                                   NvU64 available_memory)
 {
@@ -1395,10 +1375,10 @@ void gvm_send_availability_notice(uvm_va_space_t *va_space, NvProcessorUuid uuid
     va_space->availability.has_notice = true;
     spin_unlock_irqrestore(&va_space->availability.lock, flags);
 
-    wake_up_interruptible(&va_space->availability.wait_queue);
+    wake_up_interruptible(&va_space->notice_wait_queue);
 }
 
-void gvm_notify_all_processes_memory_available(uvm_gpu_t *gpu, NvU64 available_bytes)
+void gvm_notice_broadcast_availability(uvm_gpu_t *gpu, NvU64 available_bytes)
 {
     unsigned long now = jiffies;
     unsigned long last;
@@ -1425,21 +1405,33 @@ void gvm_notify_all_processes_memory_available(uvm_gpu_t *gpu, NvU64 available_b
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
 }
 
-NV_STATUS gvm_wait_availability_notice(uvm_va_space_t *va_space, UVM_WAIT_AVAILABILITY_NOTICE_PARAMS *params)
+NV_STATUS gvm_wait_notice(uvm_va_space_t *va_space, UVM_WAIT_NOTICE_PARAMS *params)
 {
     unsigned long flags;
     int ret;
 
-    ret = wait_event_interruptible(va_space->availability.wait_queue,
+    ret = wait_event_interruptible(va_space->notice_wait_queue,
+                                   va_space->eviction.has_notice ||
                                    va_space->availability.has_notice);
     if (ret)
         return NV_ERR_SIGNAL_PENDING;
 
-    spin_lock_irqsave(&va_space->availability.lock, flags);
-    params->uuid = va_space->availability.uuid;
-    params->available_memory = va_space->availability.available_memory;
-    va_space->availability.has_notice = false;
-    spin_unlock_irqrestore(&va_space->availability.lock, flags);
+    if (va_space->eviction.has_notice) {
+        spin_lock_irqsave(&va_space->eviction.lock, flags);
+        params->type = GVM_NOTICE_EVICTION;
+        params->uuid = va_space->eviction.uuid;
+        params->eviction.target_memory = va_space->eviction.target_memory;
+        params->eviction.current_memory = va_space->eviction.current_memory;
+        va_space->eviction.has_notice = false;
+        spin_unlock_irqrestore(&va_space->eviction.lock, flags);
+    } else {
+        spin_lock_irqsave(&va_space->availability.lock, flags);
+        params->type = GVM_NOTICE_AVAILABILITY;
+        params->uuid = va_space->availability.uuid;
+        params->availability.available_memory = va_space->availability.available_memory;
+        va_space->availability.has_notice = false;
+        spin_unlock_irqrestore(&va_space->availability.lock, flags);
+    }
 
     return NV_OK;
 }

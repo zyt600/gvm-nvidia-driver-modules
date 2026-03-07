@@ -1181,22 +1181,28 @@ typedef struct
     NV_STATUS rmStatus;
 } UVM_UPDATE_EVENT_COUNT_PARAMS;
 
-#define UVM_WAIT_EVICTION_NOTICE                                      UVM_IOCTL_BASE(82)
-typedef struct
+typedef enum
 {
-    NvProcessorUuid uuid;           // OUT: UUID of the GPU under memory pressure
-    NvU64           target_memory;  // OUT: target physical memory usage (bytes)
-    NvU64           current_memory; // OUT: current total memory usage, physical + swap (bytes)
-    NV_STATUS       rmStatus;       // OUT
-} UVM_WAIT_EVICTION_NOTICE_PARAMS;
+    GVM_NOTICE_EVICTION     = 0,
+    GVM_NOTICE_AVAILABILITY = 1,
+} gvm_notice_type_t;
 
-#define UVM_WAIT_AVAILABILITY_NOTICE                                  UVM_IOCTL_BASE(83)
+#define UVM_WAIT_NOTICE                                               UVM_IOCTL_BASE(82)
 typedef struct
 {
-    NvProcessorUuid uuid;             // OUT: UUID of the GPU that now has free memory
-    NvU64           available_memory; // todo  OUT: available GPU memory (bytes)
-    NV_STATUS       rmStatus;         // OUT
-} UVM_WAIT_AVAILABILITY_NOTICE_PARAMS;
+    NvProcessorUuid   uuid;            // OUT: GPU UUID
+    gvm_notice_type_t type;            // OUT
+    union {
+        struct {
+            NvU64 target_memory;       // target physical memory usage (bytes)
+            NvU64 current_memory;      // current total memory, physical + swap (bytes)
+        } eviction;
+        struct {
+            NvU64 available_memory;    // available GPU memory (bytes)
+        } availability;
+    };
+    NV_STATUS rmStatus;                // OUT
+} UVM_WAIT_NOTICE_PARAMS;
 
 //
 // Temporary ioctls which should be removed before UVM 8 release
