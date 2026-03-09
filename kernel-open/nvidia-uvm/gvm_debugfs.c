@@ -30,6 +30,8 @@ static unsigned int gvm_eviction_notify_throttle_ms = 1000;
 
 static atomic_long_t last_eviction_notify_jiffies = ATOMIC_LONG_INIT(0);
 
+static atomic_long_t notice_listener_count = ATOMIC_LONG_INIT(0);
+
 // Hash table for per-process debugfs directories
 #define GVM_DEBUGFS_HASH_BITS 8
 static DEFINE_HASHTABLE(gvm_debugfs_dirs, GVM_DEBUGFS_HASH_BITS);
@@ -1390,6 +1392,12 @@ void gvm_notice_broadcast_availability(uvm_gpu_t *gpu, NvU64 available_bytes)
     if (atomic_long_cmpxchg(&last_eviction_notify_jiffies, last, now) != last)
         return;
 
+    long listener_count = atomic_long_read(&notice_listener_count);
+    if (listener_count <= 0)
+        return;
+
+    NvU64 per_listener_bytes = available_bytes / (NvU64)listener_count;
+
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
         if (!va_space->gpu_cgroup)
@@ -1400,7 +1408,7 @@ void gvm_notice_broadcast_availability(uvm_gpu_t *gpu, NvU64 available_bytes)
         if (process_current == 0)
             continue;
 
-        gvm_send_availability_notice(va_space, gpu->uuid, available_bytes);
+        gvm_send_availability_notice(va_space, gpu->uuid, per_listener_bytes);
     }
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
 }
@@ -1410,9 +1418,12 @@ NV_STATUS gvm_wait_notice(uvm_va_space_t *va_space, UVM_WAIT_NOTICE_PARAMS *para
     unsigned long flags;
     int ret;
 
+    atomic_long_inc(&notice_listener_count);
     ret = wait_event_interruptible(va_space->notice_wait_queue,
                                    va_space->eviction.has_notice ||
                                    va_space->availability.has_notice);
+    atomic_long_dec(&notice_listener_count);
+
     if (ret)
         return NV_ERR_SIGNAL_PENDING;
 
