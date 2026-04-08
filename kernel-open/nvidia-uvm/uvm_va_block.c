@@ -2227,7 +2227,8 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             NvU64 available_bytes = (NvU64)READ_ONCE(gpu->pmm.pma_stats->numFreePages64k) * SZ_64K;
 
             if (high_watermark < 100 && available_bytes < gpu->mem_info.size * (100 - high_watermark) / 100) {
-                NvU64 target_available_bytes = gpu->mem_info.size * (100 - low_watermark) / 100;
+                unsigned int mid_watermark = (high_watermark + low_watermark) / 2;
+                NvU64 target_available_bytes = gpu->mem_info.size * (100 - mid_watermark) / 100;
                 NvU64 bytes_to_reclaim = target_available_bytes - available_bytes;
                 gvm_notice_broadcast_eviction(gpu, bytes_to_reclaim);
             }
