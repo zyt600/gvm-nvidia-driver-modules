@@ -55,7 +55,7 @@ int try_charge_gpu_memcg_debugfs(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id, 
 int try_uncharge_gpu_memcg_debugfs(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id, size_t size, bool swap);
 
 size_t get_gpu_memcg_current(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
-size_t get_gpu_memcg_limit(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
+size_t get_gpu_memcg_limit_high(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
 size_t get_gpu_memcg_limit_low(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
 size_t get_gpu_memcg_limit_min(uvm_va_space_t *va_space, uvm_gpu_id_t gpu_id);
 unsigned int get_gpu_mem_high_watermark(void);

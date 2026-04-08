@@ -2217,7 +2217,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             --block_test->user_pages_allocation_retry_force_count;
             status = NV_ERR_NO_MEMORY;
         }
-        else if (va_space && get_gpu_memcg_current(va_space, gpu->id) > get_gpu_memcg_limit(va_space, gpu->id)) {
+        else if (va_space && get_gpu_memcg_current(va_space, gpu->id) > get_gpu_memcg_limit_high(va_space, gpu->id)) {
             evict_flags |= UVM_PMM_ALLOC_FLAGS_EVICT_FORCE;
             status = NV_ERR_NO_MEMORY;
         }
